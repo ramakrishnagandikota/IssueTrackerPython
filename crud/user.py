@@ -68,8 +68,20 @@ def read_user_id(db : Session, user_id : str):
 
 def post_user(db: Session, user: UserCreate):
    try:
+      checkUser = checkUser = db.query(User).filter(
+               or_(
+                  func.lower(User.email) == user.email.lower(),
+                  User.mobile_number == user.mobile_number
+               )
+            ).first()
+      if checkUser:
+         return {
+            "status": "Fail",
+            "message": "User with this Email / Mobile number is already created."
+         }
+         
       hashed_password = password_context.hash(user.password)
-      userCreate = User(id = uuid.uuid4(), password = hashed_password, **user.dict(exclude={'password','role_id'}))
+      userCreate = User(id = uuid.uuid4(), password = hashed_password, email = user.email.lower(), **user.dict(exclude={'password','role_id','email'}))
       db.add(userCreate)
       db.commit()
       db.refresh(userCreate)
@@ -88,7 +100,7 @@ def post_user(db: Session, user: UserCreate):
       print({str(e)})
       raise HTTPException(status_code=500, detail= str(e))
    
-def update_user_id(user: UserCreate, db: Session):
+# def update_user_id(user: UserCreate, db: Session):
    try:
       checkUser = db.query(User).filter(User.id == user.id).first()
       
@@ -131,7 +143,73 @@ def update_user_id(user: UserCreate, db: Session):
       print({str(e)})
       raise HTTPException(status_code=500, detail= str(e))
    
-   
+def update_user_id(user: UserCreate, db: Session):
+    try:
+        checkUser = db.query(User).filter(User.id == user.id).first()
+
+        if not checkUser:
+            return {
+                "status": "fail",
+                "message": "There is no user with given information."
+            }
+
+        # ✅ Check if email or mobile number exists for another user
+      #   existing = db.query(User).filter(
+      #       or_(
+      #           func.lower(User.email) == user.email.lower(),
+      #           User.mobile_number == user.mobile_number
+      #       ),
+      #       User.id != user.id  # exclude current user
+      #    ).first()
+      
+        existing = db.query(User).filter(
+               or_(
+                  func.lower(User.email) == user.email.lower(),
+                  User.mobile_number == user.mobile_number
+               ),
+               User.id != user.id,  # this line ensures current user is excluded
+               User.deleted == False
+            ).first()
+
+        if existing:
+            return {
+               "status": "Fail",
+               "message": "User with this Email or Mobile number already exists."
+            }
+
+
+        # ✅ Update user fields except role_id
+        for key, value in user.dict(exclude={'role_id'}).items():
+            setattr(checkUser, key, value)
+        db.commit()
+        db.refresh(checkUser)
+
+        # ✅ Update role
+        checkRole = db.query(UserRole).filter(UserRole.user_id == checkUser.id).first()
+        if checkRole:
+            if checkRole.role_id != user.role_id:
+                db.delete(checkRole)
+                db.commit()
+                userRole = UserRole(id=uuid.uuid4(), user_id=checkUser.id, role_id=user.role_id)
+                db.add(userRole)
+                db.commit()
+                db.refresh(userRole)
+        else:
+            userRole = UserRole(id=uuid.uuid4(), user_id=checkUser.id, role_id=user.role_id)
+            db.add(userRole)
+            db.commit()
+            db.refresh(userRole)
+
+        return {
+            "status": "Success",
+            "message": "User updated successfully."
+        }
+
+    except Exception as e:
+        print({str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+     
+     
 def userSearch(search: UserSearch, db: Session,skip: int = 0,limit: int = 10):
    result = (
         db.query(User)

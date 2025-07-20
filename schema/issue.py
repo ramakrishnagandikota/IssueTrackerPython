@@ -19,6 +19,7 @@ class IssueFile(BaseModel):
 class IssueApproveReject(BaseModel):
     id: UUID
     state: str
+    user_id: UUID
     
 class IssueUpdate(BaseModel):
     id: UUID   
@@ -33,3 +34,8 @@ class IssueUpdate(BaseModel):
 class IssueDelete(BaseModel):
     id: UUID
     user_id: UUID
+    
+class IssueImageDelete(BaseModel):
+    id: UUID
+    user_id: UUID
+    issue_id: UUID
