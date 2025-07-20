@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 import uuid
 
 from fastapi.responses import FileResponse
@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from model.role import Role
 from router.auth import get_current_user, get_current_user_id, require_role
 from router.require_role import get_all_roles_dependency
-from schema.issue import IssueApproveReject, IssueDelete, IssueEdit, IssueUpdate
+from schema.issue import IssueApproveReject, IssueDelete, IssueEdit, IssueImageDelete, IssueUpdate
 from schema.permission import PermissionRead, PermissionCreate, PermissionUpdate, PermissionDelete
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
-from crud.issue import UPLOAD_DIR, approveIssue, create_multiple_uploads, delete_issue, deleteImage, get_issues, getIssue, master_data, rejectIssue, update_issue, update_multiple_uploads
+from crud.issue import UPLOAD_DIR, approveIssue, create_multiple_uploads, delete_issue, deleteImage, get_issues, get_issues_logs, getIssue, master_data, rejectIssue, update_issue, update_multiple_uploads
 
 router = APIRouter()
 security = HTTPBearer()
@@ -41,27 +41,27 @@ def get_master_data(skip : int = 0 , limit: int = 10, db : Session = Depends(get
     return master_data(db = db , skip = skip , limit = limit)
 
 @router.post("/create-task", response_model='', dependencies=[Depends(get_all_roles_dependency)])
-async def create_task(title: str = Form(...),description: str = Form(...),type: str = Form(...),state: str = Form(...),azure_ticket_no: str = Form(...),priority: str = Form(...),user_id:str = Form(...),files: List[UploadFile] = File(...),db: Session = Depends(get_db)):
+async def create_task(title: str = Form(...),description: str = Form(...),type: str = Form(...),state: str = Form(...),azure_ticket_no: str = Form(...),priority: str = Form(...),user_id:str = Form(...),files: Optional[List[UploadFile]] = File(None),db: Session = Depends(get_db)):
     saved_files = []
+    if files :
+        for file in files:
+            contents = await file.read()
+            file_id = uuid.uuid4()
+            file_name = file.filename
+            ext = os.path.splitext(file_name)[1]
+            file_size = len(contents)
+            full_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file_name}")
 
-    for file in files:
-        contents = await file.read()
-        file_id = uuid.uuid4()
-        file_name = file.filename
-        ext = os.path.splitext(file_name)[1]
-        file_size = len(contents)
-        full_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file_name}")
+            with open(full_path, "wb") as f:
+                f.write(contents)
 
-        with open(full_path, "wb") as f:
-            f.write(contents)
-
-        saved_files.append({
-            "id": file_id,
-            "file_name": file_name,
-            "ext": ext.lstrip("."),
-            "path": full_path,
-            "file_size": file_size
-        })
+            saved_files.append({
+                "id": file_id,
+                "file_name": file_name,
+                "ext": ext.lstrip("."),
+                "path": full_path,
+                "file_size": file_size
+            })
 
     result = create_multiple_uploads(db=db,
         title=title,
@@ -112,9 +112,9 @@ def approve_issue(issue: IssueApproveReject, db: Session = Depends(get_db)):
 def reject_issue(issue: IssueApproveReject, db: Session = Depends(get_db)):
     return rejectIssue(issue=issue, db=db)
 
-@router.get("/deleteIssue/{id}", response_model='', dependencies=[Depends(get_all_roles_dependency)])
-def delete_file(id: str, db: Session = Depends(get_db)):
-    return deleteImage(id=id, db=db)
+@router.post("/deleteIssue", response_model='', dependencies=[Depends(get_all_roles_dependency)])
+def delete_file(image: IssueImageDelete, db: Session = Depends(get_db)):
+    return deleteImage(image=image, db=db)
 
 
 @router.post("/update-task", response_model='', dependencies=[Depends(get_all_roles_dependency)])
@@ -159,3 +159,7 @@ async def update_attachments(id: str = Form(...),user_id:str = Form(...),files: 
 async def delete_task(issue: IssueDelete, db: Session = Depends(get_db)):
     result = delete_issue(issue=issue, db=db)
     return result
+
+@router.get("/getAllIssueLog/{issueId}", response_model='',  dependencies=[Depends(get_all_roles_dependency)])
+def get_all_issues_log(issueId: str, skip : int = 0 , limit: int = 10, db : Session = Depends(get_db)):
+    return get_issues_logs(db = db , skip = skip , limit = limit, issueId = issueId)
